@@ -115,12 +115,12 @@ The Microsoft Agent Framework's `ChatClientAgent` handles:
 
 ## Dependencies
 
-- `Microsoft.Agents.AI` - Core agent framework
-- `Microsoft.Agents.AI.OpenAI` - OpenAI integration
-- `Microsoft.Extensions.AI` - AI abstractions
+- `Microsoft.Agents.AI` (v1.0.0-preview.251114.1) - Core agent framework
+
+This single package includes all necessary dependencies:
+- `Microsoft.Extensions.AI` - AI abstractions and IChatClient interface
 - `Microsoft.Extensions.AI.OpenAI` - OpenAI extensions
-- `Azure.AI.OpenAI` - Azure OpenAI client libraries
-- `Azure.Identity` - Azure authentication
+- Other required transitive dependencies
 
 ## Troubleshooting
 
