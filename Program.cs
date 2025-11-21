@@ -1,6 +1,85 @@
 ﻿using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
+
+# region OpenTelemetry
+const string SourceName = "OpenTelemetryAspire.ConsoleApp";
+const string ServiceName = "AgentOpenTelemetry";
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4318";
+
+// Create a resource to identify this service
+var resource = ResourceBuilder.CreateDefault()
+    .AddService(ServiceName, serviceVersion: "1.0.0")
+    .AddAttributes(new Dictionary<string, object>
+    {
+        ["service.instance.id"] = Environment.MachineName,
+        ["deployment.environment"] = "development"
+    })
+    .Build();
+
+// Setup tracing with resource
+var tracerProviderBuilder = Sdk.CreateTracerProviderBuilder()
+    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(ServiceName, serviceVersion: "1.0.0"))
+    .AddSource(SourceName) // Our custom activity source
+    .AddSource("*Microsoft.Agents.AI") // Agent Framework telemetry
+    .AddHttpClientInstrumentation() // Capture HTTP calls to OpenAI
+    .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint));
+
+using var tracerProvider = tracerProviderBuilder.Build();
+
+// Setup metrics with resource and instrument name filtering
+using var meterProvider = Sdk.CreateMeterProviderBuilder()
+    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(ServiceName, serviceVersion: "1.0.0"))
+    .AddMeter(SourceName) // Our custom meter
+    .AddMeter("*Microsoft.Agents.AI") // Agent Framework metrics
+    .AddHttpClientInstrumentation() // HTTP client metrics
+    .AddRuntimeInstrumentation() // .NET runtime metrics
+    .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint))
+    .Build();
+
+// Setup structured logging with OpenTelemetry
+var serviceCollection = new ServiceCollection();
+serviceCollection.AddLogging(loggingBuilder => loggingBuilder
+    .SetMinimumLevel(LogLevel.Debug)
+    .AddOpenTelemetry(options =>
+    {
+        options.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(ServiceName, serviceVersion: "1.0.0"));
+        options.AddOtlpExporter(otlpOptions => otlpOptions.Endpoint = new Uri(otlpEndpoint));
+        options.IncludeScopes = true;
+        options.IncludeFormattedMessage = true;
+    }));
+
+using var activitySource = new ActivitySource(SourceName);
+using var meter = new Meter(SourceName);
+
+// Create custom metrics
+var interactionCounter = meter.CreateCounter<int>("agent_interactions_total", description: "Total number of agent interactions");
+var responseTimeHistogram = meter.CreateHistogram<double>("agent_response_time_seconds", description: "Agent response time in seconds");
+
+Console.WriteLine("""
+    === OpenTelemetry Aspire Demo ===
+    This demo shows OpenTelemetry integration with the Agent Framework.
+    You can view the telemetry data in the Aspire Dashboard.
+    Type your message and press Enter. Type 'exit' or empty message to quit.
+    """);
+
+var serviceProvider = serviceCollection.BuildServiceProvider();
+var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+var appLogger = loggerFactory.CreateLogger<Program>();
+
+// Log application startup
+appLogger.LogInformation("OpenTelemetry Aspire Demo application started");
+
+#endregion
 
 // Configuration for your local LLM
 // Update these values to match your local LLM setup
@@ -18,7 +97,7 @@ Console.WriteLine($"Model: {modelName}");
 Console.WriteLine("Type 'exit' or 'quit' to end the conversation.\n");
 
 // Create a custom chat client for local LLM
-var chatClient = new LocalLLMChatClient(localLlmEndpoint, modelName, apiKey);
+using IChatClient chatClient = new LocalLLMChatClient(localLlmEndpoint, modelName, apiKey);
 
 // Create a ChatClientAgent
 var agent = new ChatClientAgent(
