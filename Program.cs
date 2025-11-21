@@ -4,9 +4,13 @@ using System.Runtime.CompilerServices;
 
 // Configuration for your local LLM
 // Update these values to match your local LLM setup
-var localLlmEndpoint = "http://localhost:1234/v1/chat/completions"; // Change this to your local LLM endpoint
-var modelName = "local-model"; // Change this to your model name
-var apiKey = "not-needed"; // Most local LLMs don't require an API key
+var localLlmEndpoint = Environment.GetEnvironmentVariable("LOCAL_LLM_ENDPOINT"); // Change this to your local LLM endpoint
+var modelName = Environment.GetEnvironmentVariable("LOCAL_LLM_MODEL_NAME"); // Change this to your model name
+var apiKey = Environment.GetEnvironmentVariable("LOCAL_LLM_API_KEY"); // Most local LLMs don't require an API key
+
+ArgumentNullException.ThrowIfNull(localLlmEndpoint);
+ArgumentNullException.ThrowIfNull(modelName);
+ArgumentNullException.ThrowIfNull(apiKey);
 
 Console.WriteLine("=== Microsoft Agent Framework - Local LLM Chat ===");
 Console.WriteLine($"Connecting to: {localLlmEndpoint}");
