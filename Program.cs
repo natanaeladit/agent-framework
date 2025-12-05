@@ -94,9 +94,10 @@ Console.WriteLine();
 // Log application startup
 appLogger.LogInformation("Local LLM Agent application started");
 
-// Create the instrumented chat client using the builder pattern
+// Create the instrumented chat client using the builder pattern with Guardrail middleware
 var instrumentedChatClient = new LocalLLMChatClient(localLlmEndpoint, modelName, apiKey)
     .AsBuilder()
+    .Use(ChatClientGuardrailMiddleware, null) // Add guardrail middleware to filter harmful content
     .UseOpenTelemetry(sourceName: SourceName, configure: (cfg) => cfg.EnableSensitiveData = true) // enable telemetry at the chat client level
     .Build();
 
@@ -220,6 +221,78 @@ using (appLogger.BeginScope(new Dictionary<string, object> { ["SessionId"] = ses
 
 Console.WriteLine("Goodbye!");
 appLogger.LogInformation("Local LLM Agent application shutting down");
+
+#region Middleware Functions
+
+// Chat Client Guardrail Middleware
+// This middleware enforces guardrails by filtering harmful content from input and output messages at the chat client level
+async Task<ChatResponse> ChatClientGuardrailMiddleware(IEnumerable<ChatMessage> messages, ChatOptions? options, IChatClient innerChatClient, CancellationToken cancellationToken)
+{
+    // Filter harmful content from input messages
+    var filteredMessages = FilterMessages(messages);
+
+    var inputFiltered = filteredMessages.Count != messages.Count() ||
+                       filteredMessages.Zip(messages, (filtered, original) => filtered.Text != original.Text).Any(changed => changed);
+
+    if (inputFiltered)
+    {
+        appLogger.LogWarning("Guardrail Middleware - Filtered harmful content from input messages");
+        Console.WriteLine("[Guardrail: Input filtered for harmful content]");
+    }
+
+    // Proceed with the filtered messages
+    var response = await innerChatClient.GetResponseAsync(filteredMessages, options, cancellationToken);
+
+    // Filter harmful content from output messages
+    var originalResponseText = response.Messages?.FirstOrDefault()?.Text ?? string.Empty;
+    var filteredResponseText = FilterContent(originalResponseText);
+
+    if (originalResponseText != filteredResponseText)
+    {
+        appLogger.LogWarning("Guardrail Middleware - Filtered harmful content from output messages");
+        Console.WriteLine("[Guardrail: Output filtered for harmful content]");
+
+        // Create a new response with filtered content
+        response = new ChatResponse(new ChatMessage(ChatRole.Assistant, filteredResponseText));
+    }
+
+    return response;
+
+    List<ChatMessage> FilterMessages(IEnumerable<ChatMessage> messages)
+    {
+        return messages.Select(m => new ChatMessage(m.Role, FilterContent(m.Text))).ToList();
+    }
+
+    static string FilterContent(string content)
+    {
+        // List of forbidden keywords that trigger content filtering
+        var forbiddenKeywords = new[]
+        {
+            "harmful",
+            "illegal",
+            "violence",
+            "weapon",
+            "bomb",
+            "kill",
+            "murder",
+            "attack",
+            "hate",
+            "terrorism"
+        };
+
+        foreach (var keyword in forbiddenKeywords)
+        {
+            if (content.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                return "[REDACTED: Forbidden content detected. Please rephrase your request without harmful, illegal, or violent content.]";
+            }
+        }
+
+        return content;
+    }
+}
+
+#endregion
 
 // Custom IChatClient implementation for local LLM
 public class LocalLLMChatClient : IChatClient

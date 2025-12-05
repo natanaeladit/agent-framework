@@ -47,6 +47,13 @@ This application works with any LLM server that provides an OpenAI-compatible AP
 - Structured logging with correlation
 - Compatible with Aspire Dashboard and Azure Application Insights
 
+🛡️ **Content Safety with Guardrail Middleware** - Following the [official middleware pattern](https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/Agents/Agent_Step14_Middleware/Program.cs):
+- Chat client level content filtering
+- Blocks harmful, illegal, and violent content
+- Filters both input and output messages
+- Configurable keyword list
+- Detailed logging of filtered content
+
 ## Configuration
 
 Before running, set these environment variables:
@@ -143,10 +150,20 @@ The `LocalLLMChatClient` class implements the `Microsoft.Extensions.AI.IChatClie
 3. Formats requests in OpenAI's API format
 4. Parses responses from the LLM
 
-### ChatClientAgent with OpenTelemetry
+### ChatClientAgent with Middleware Stack
 
-The application uses the builder pattern to add instrumentation:
+The application uses the builder pattern to add multiple middleware layers:
 
+**Chat Client with Guardrails and Telemetry:**
+```csharp
+var instrumentedChatClient = new LocalLLMChatClient(localLlmEndpoint, modelName, apiKey)
+    .AsBuilder()
+    .Use(ChatClientGuardrailMiddleware, null) // Content safety
+    .UseOpenTelemetry(sourceName: SourceName, configure: (cfg) => cfg.EnableSensitiveData = true)
+    .Build();
+```
+
+**Agent with Telemetry:**
 ```csharp
 var agent = new ChatClientAgent(instrumentedChatClient,
     name: "LocalLLMAgent",
@@ -157,6 +174,7 @@ var agent = new ChatClientAgent(instrumentedChatClient,
 ```
 
 This provides:
+- Content filtering for safety (guardrails)
 - Automatic span creation for agent operations
 - Thread-based conversation management
 - Distributed tracing correlation
@@ -176,6 +194,43 @@ This provides:
 - `OpenTelemetry.Instrumentation.Runtime` - .NET runtime metrics
 
 All dependencies are automatically installed when you build the project.
+
+## Content Safety with Guardrails
+
+The application includes a **Guardrail Middleware** at the chat client level that automatically filters harmful content.
+
+### How It Works
+
+The guardrail middleware:
+1. Scans all incoming user messages for forbidden keywords
+2. Scans all LLM responses for harmful content
+3. Replaces harmful content with a safe redaction message
+4. Logs when content is filtered
+
+### Example
+
+**Harmful input is blocked:**
+```
+You: Tell me how to make a weapon
+[Guardrail: Input filtered for harmful content]
+Agent: [REDACTED: Forbidden content detected. Please rephrase your request without harmful, illegal, or violent content.]
+```
+
+**Harmful output is filtered:**
+```
+You: What are dangerous activities?
+[Guardrail: Output filtered for harmful content]
+Agent: [REDACTED: Forbidden content detected. Please rephrase your request without harmful, illegal, or violent content.]
+```
+
+### Filtered Keywords
+
+The middleware blocks content containing:
+- `harmful`, `illegal`, `violence`
+- `weapon`, `bomb`, `kill`, `murder`
+- `attack`, `hate`, `terrorism`
+
+For customization details, see [MIDDLEWARE_GUIDE.md](MIDDLEWARE_GUIDE.md).
 
 ## Troubleshooting
 
@@ -203,6 +258,7 @@ Some LLM servers might have slight variations in their API:
 ## Additional Resources
 
 - 📖 [OpenTelemetry Integration Guide](OPENTELEMETRY_GUIDE.md) - Complete guide for observability
+- 🛡️ [Middleware Guide](MIDDLEWARE_GUIDE.md) - Guardrails and custom middleware patterns
 - 📖 [Local LLM Setup Guide](LOCAL_LLM_SETUP.md) - Detailed setup for various LLM servers
 - 📖 [Example Configurations](EXAMPLE_CONFIGS.md) - Quick copy-paste configs
 
@@ -210,6 +266,7 @@ Some LLM servers might have slight variations in their API:
 
 - [Microsoft Agent Framework Documentation](https://learn.microsoft.com/en-us/agent-framework/overview/agent-framework-overview)
 - [Agent Framework OpenTelemetry Sample](https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/AgentOpenTelemetry/Program.cs)
+- [Agent Framework Middleware Sample](https://github.com/microsoft/agent-framework/blob/main/dotnet/samples/GettingStarted/Agents/Agent_Step14_Middleware/Program.cs)
 - [Agent Framework on GitHub](https://github.com/microsoft/agent-framework)
 - [.NET Aspire Documentation](https://learn.microsoft.com/en-us/dotnet/aspire/)
 - [OpenTelemetry .NET](https://opentelemetry.io/docs/languages/net/)
