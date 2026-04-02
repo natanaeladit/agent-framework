@@ -112,7 +112,7 @@ var agent = new ChatClientAgent(instrumentedChatClient,
     .Build();
 
 // Get a new thread for conversation management
-var thread = agent.GetNewThread();
+var thread = await agent.CreateSessionAsync();
 
 appLogger.LogInformation("Agent created successfully with ID: {AgentId}", agent.Id);
 
